@@ -1,0 +1,96 @@
+# Accuracy (mAP) measurement configuration.
+# Parallel to configs/benchmark.yaml but for COCO mAP on real images
+# instead of latency on random tensors.
+#
+# Run with:
+#   python3 experiments/accuracy_demo.py --config configs/accuracy.yaml
+#   python3 experiments/accuracy_demo.py --config configs/accuracy.yaml --only trt_int8
+# ---------------------------------------------------------------------------
+# Input shape (same as benchmark.yaml; YOLOv8n is trained at 640x640).
+# ---------------------------------------------------------------------------
+input:
+  imgsz: 640
+  batch_size: 1
+  channels: 3
+
+# ---------------------------------------------------------------------------
+# Evaluation parameters. Apply to every backend.
+# COCO eval standard: conf_thres=0.001 (full P-R curve), iou_thres=0.7 for NMS.
+# image_subset = paths[500:1500] = the 1000 images right after the 500 used
+# for INT8 calibration (no overlap with calibration data).
+# ---------------------------------------------------------------------------
+eval:
+  ann_file: data/coco_val/annotations/instances_val2017.json
+  images_dir: data/coco_val/images
+  start: 500               # COCO val image-id index (sorted)
+  count: 1000              # 1000 images
+  conf_thres: 0.001
+  iou_thres: 0.7
+  max_det: 300
+  nc: 80
+  device: cuda
+  progress_interval: 100   # log every N images
+
+# ---------------------------------------------------------------------------
+# Output location.
+# ---------------------------------------------------------------------------
+output:
+  results_dir: results/accuracy
+
+# ---------------------------------------------------------------------------
+# Backends to evaluate. Same schema as benchmark.yaml / calibration_compare.yaml
+# so build_backend() and load_weights_path() can be reused directly.
+#
+# Order: cheapest to load first (PT, ORT, then 6 TRT engines).
+# Note: trt_int8 and trt_int8_entropy_500 point to the SAME engine file; we
+# keep both records explicitly so the 5-way summary table and the calibration-
+# variants table can both cite a record without cross-referencing.
+# ---------------------------------------------------------------------------
+backends:
+  - name: pytorch_fp32
+    precision: fp32
+    weights: models/pt/yolov8n.pt
+    enabled: true
+
+  - name: onnxrt_fp32
+    precision: fp32
+    weights: models/onnx/yolov8n.onnx
+    providers:
+      - CUDAExecutionProvider
+      - CPUExecutionProvider
+    enabled: true
+
+  - name: trt_fp32
+    precision: fp32
+    engine: models/trt/yolov8n_fp32.engine
+    enabled: true
+
+  - name: trt_fp16
+    precision: fp16
+    engine: models/trt/yolov8n_fp16.engine
+    enabled: true
+
+  - name: trt_int8
+    precision: int8
+    engine: models/trt/yolov8n_int8_entropy_500.engine
+    enabled: true
+
+  - name: trt_int8_entropy_500
+    precision: int8
+    engine: models/trt/yolov8n_int8_entropy_500.engine
+    enabled: true
+
+  - name: trt_int8_entropy_100
+    precision: int8
+    engine: models/trt/yolov8n_int8_entropy_100.engine
+    enabled: true
+
+  - name: trt_int8_minmax_500
+    precision: int8
+    engine: models/trt/yolov8n_int8_minmax_500.engine
+    enabled: true
+
+  - name: trt_int8_percentile_500
+    precision: int8
+    engine: models/trt/yolov8n_int8_percentile_500.engine
+    enabled: true

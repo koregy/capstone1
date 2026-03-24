@@ -87,6 +87,38 @@ def build_record(
     }
 
 
+def build_accuracy_record(
+    backend_name: str,
+    precision: str,
+    accuracy: dict,
+    run_config: dict,
+    extra: dict | None = None,
+) -> dict:
+    """Build a record for accuracy (mAP) measurement, parallel to build_record().
+
+    Args:
+        backend_name: e.g. "pytorch_fp32", "trt_int8_entropy_500".
+        precision: "fp32" | "fp16" | "int8".
+        accuracy: Output of evaluate_backend(). Expected keys:
+            mAP_50_95, mAP_50, mAP_75, mAP_small, mAP_medium, mAP_large,
+            n_images, n_detections, eval_time_sec, inference_time_sec.
+        run_config: dict with keys:
+            imgsz, n_images, image_subset, conf_thres, iou_thres,
+            max_det, nc, ann_file, device.
+        extra: Backend-specific extras (engine path, ORT providers, etc.).
+    """
+    return {
+        "backend": {
+            "name": backend_name,
+            "precision": precision,
+        },
+        "run": run_config,
+        "accuracy": accuracy,
+        "env": _collect_env_info(),
+        "extra": extra or {},
+    }
+
+
 def save_record(
     record: dict,
     results_dir: str | Path = "results/baseline",
