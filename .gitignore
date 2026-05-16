@@ -39,7 +39,8 @@ models/
 *.plan
 
 # Measurement results / generated figures
-results/
+results/*
+!results/baseline/
 poster/demo_video/
 poster/figures/*.png
 poster/figures/*.jpg
@@ -66,3 +67,15 @@ Thumbs.db
 
 # Wheel files (Jetson-specific binaries)
 *.whl
+
+# Pre-trained weights (must be downloaded by users)
+yolov8n.pt
+*.pt
+*.pth
+
+# Day 1 baseline reference 측정
+!results/baseline/
+!results/baseline/*.txt
+!results/baseline/*.log
+!results/baseline/*.json
+!results/baseline/*.csv

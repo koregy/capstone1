@@ -1,0 +1,16 @@
+Day 1 — PyTorch FP32 baseline (first-pass)
+
+Input:  data/clips/test_vid_30fps_15s.mp4 (15s, 30 FPS dashcam clip)
+Method: app/detect_track_ttc.py --no-show (camera/display disabled)
+Device: Jetson Orin Nano, CUDA 12.6, PyTorch 2.5 NV24.08
+
+Result:
+  total frames       : 452 (440 after warmup)
+  inference (ms)     : mean=24.96  p50=24.96  p95=25.03  p99=25.16
+  end-to-end (ms)    : mean=39.87  effective FPS=25.08
+
+Notes:
+  - inference == ultralytics speed['inference'] (model-only time)
+  - end-to-end == frame-loop wall time (includes decode + ByteTrack + TTC + overlay)
+  - Day 1 reference for 5-way comparison; official baseline re-measured in
+    Day 2 with dummy tensor inputs via infra/benchmark/runner.py
