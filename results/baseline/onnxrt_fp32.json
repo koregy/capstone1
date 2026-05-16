@@ -1,0 +1,47 @@
+{
+  "backend": {
+    "name": "onnxrt_fp32",
+    "precision": "fp32"
+  },
+  "run": {
+    "input_shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "n_warmup": 20,
+    "n_iter": 200,
+    "seed": 42,
+    "device": "cuda"
+  },
+  "stats": {
+    "n": 200,
+    "n_warmup_excluded": 20,
+    "mean_ms": 15.378189600032783,
+    "std_ms": 0.6283961737847642,
+    "min_ms": 15.050592000079632,
+    "max_ms": 18.276927999977488,
+    "p50_ms": 15.200127999833057,
+    "p90_ms": 15.426252800079965,
+    "p95_ms": 16.549142400663186,
+    "p99_ms": 18.139563520298907,
+    "fps": 65.02716028406024
+  },
+  "env": {
+    "timestamp": "2026-05-17T05:29:46+09:00",
+    "torch": "2.5.0a0+872d972e41.nv24.08",
+    "cuda": "12.6",
+    "gpu": "Orin"
+  },
+  "extra": {
+    "name": "onnxrt_fp32",
+    "precision": "fp32",
+    "model": "models/onnx/yolov8n.onnx",
+    "providers": [
+      "CUDAExecutionProvider",
+      "CPUExecutionProvider"
+    ],
+    "ort_version": "1.23.0"
+  }
+}

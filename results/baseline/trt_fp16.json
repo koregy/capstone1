@@ -1,0 +1,49 @@
+{
+  "backend": {
+    "name": "trt_fp16",
+    "precision": "fp16"
+  },
+  "run": {
+    "input_shape": [
+      1,
+      3,
+      640,
+      640
+    ],
+    "n_warmup": 20,
+    "n_iter": 200,
+    "seed": 42,
+    "device": "cuda"
+  },
+  "stats": {
+    "n": 200,
+    "n_warmup_excluded": 20,
+    "mean_ms": 3.97598447999826,
+    "std_ms": 0.012935010994729525,
+    "min_ms": 3.955840000344324,
+    "max_ms": 4.099296000276809,
+    "p50_ms": 3.974448000008124,
+    "p90_ms": 3.9841375994910777,
+    "p95_ms": 3.986881600394554,
+    "p99_ms": 4.017108799598645,
+    "fps": 251.51003607550237
+  },
+  "env": {
+    "timestamp": "2026-05-17T05:29:49+09:00",
+    "torch": "2.5.0a0+872d972e41.nv24.08",
+    "cuda": "12.6",
+    "gpu": "Orin"
+  },
+  "extra": {
+    "name": "trt_fp16",
+    "precision": "fp16",
+    "engine": "models/trt/yolov8n_fp16.engine",
+    "input_names": [
+      "images"
+    ],
+    "output_names": [
+      "output0"
+    ],
+    "tensorrt_version": "10.3.0"
+  }
+}

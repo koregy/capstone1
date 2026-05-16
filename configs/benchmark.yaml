@@ -1,0 +1,65 @@
+# Benchmark configuration for Day 2-7 latency measurements.
+#
+# This file is read by experiments/baseline_demo.py and (later)
+# experiments/benchmark_5way.py. Changing this file should be the only thing
+# needed to re-run the full suite on a different model (e.g. YOLOv8s on Day 7).
+
+# ---------------------------------------------------------------------------
+# Input tensor shape. Kept static across all backends for fair comparison.
+# ---------------------------------------------------------------------------
+input:
+  imgsz: 640          # input height = width (square)
+  batch_size: 1       # Orin Nano 8GB; batch=1 is the realistic camera scenario
+  channels: 3         # RGB
+
+# ---------------------------------------------------------------------------
+# Measurement run parameters. Apply to every backend.
+# ---------------------------------------------------------------------------
+run:
+  n_warmup: 20        # min 20: covers CUDA context init + cuDNN auto-tune
+  n_iter: 200         # measured iters after warmup
+  device: cuda
+  seed: 42
+
+# ---------------------------------------------------------------------------
+# Output location for JSON snapshots and history.csv.
+# ---------------------------------------------------------------------------
+output:
+  results_dir: results/baseline
+
+# ---------------------------------------------------------------------------
+# Backend list. Each entry maps to a concrete BaseBackend subclass via the
+# `name` field. baseline_demo.py iterates through these in order, calling
+# load -> warmup -> run_benchmark -> teardown for each.
+#
+# Order matters: lighter backends first (PyTorch) so that any setup failure
+# is caught before spending time on heavier ones (TRT engine builds).
+# ---------------------------------------------------------------------------
+backends:
+  - name: pytorch_fp32
+    precision: fp32
+    weights: models/pt/yolov8n.pt
+    enabled: true
+
+  - name: onnxrt_fp32
+    precision: fp32
+    weights: models/onnx/yolov8n.onnx     # produced by infra/convert/pt_to_onnx.py
+    providers:
+      - CUDAExecutionProvider
+      - CPUExecutionProvider
+    enabled: true                         # flip to true once ONNX export is done
+
+  - name: trt_fp32
+    precision: fp32
+    engine: models/trt/yolov8n_fp32.engine  # produced by trtexec
+    enabled: true                         
+
+  - name: trt_fp16
+    precision: fp16
+    engine: models/trt/yolov8n_fp16.engine
+    enabled: true                          
+
+  - name: trt_int8
+    precision: int8
+    engine: models/trt/yolov8n_int8.engine
+    enabled: false                          
