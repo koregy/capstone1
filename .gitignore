@@ -63,3 +63,6 @@ trtexec.log
 # OS
 .DS_Store
 Thumbs.db
+
+# Wheel files (Jetson-specific binaries)
+*.whl
