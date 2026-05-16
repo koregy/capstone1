@@ -1,14 +1,14 @@
 """
-plot_ttc_debug.py — `--ttc-debug` 로 저장된 CSV 를 시각화.
+plot_ttc_debug.py — visualize CSV saved by `--ttc-debug`.
 
-트랙별로 scale, growth_ema, ttc 의 시계열을 보여줘서
-"어디서 TTC 가 이상하게 점프했는지" 를 한눈에 보게 함.
+Shows time-series of scale, growth_ema, and ttc per track so you can
+see at a glance where TTC jumped unexpectedly.
 
-사용 예:
+Usage:
   python experiments/plot_ttc_debug.py \
       --csv results/ttc_debug.csv \
       --out  results/ttc_debug.png
-  # 또는 특정 트랙만:
+  # or for specific tracks only:
   python experiments/plot_ttc_debug.py --csv ... --tracks 3 7
 """
 
@@ -23,20 +23,20 @@ from pathlib import Path
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser()
-    p.add_argument("--csv", required=True, help="ttc_debug.csv 경로")
+    p.add_argument("--csv", required=True, help="path to ttc_debug.csv")
     p.add_argument("--out", default=None,
-                   help="png 출력 경로. 없으면 화면에 표시.")
+                   help="output png path. if omitted, shows on screen.")
     p.add_argument("--tracks", nargs="*", type=int, default=None,
-                   help="필터링할 track_id 목록. 없으면 가장 오래 보인 6개.")
+                   help="track_id list to plot. if omitted, uses the 6 longest-observed tracks.")
     p.add_argument("--min-frames", type=int, default=15,
-                   help="이 프레임 수 미만으로 보인 트랙은 무시")
+                   help="ignore tracks seen for fewer than this many frames")
     return p.parse_args()
 
 
 def main() -> int:
     args = parse_args()
 
-    # CSV 읽기
+    # read CSV
     rows_per_track: dict[int, list[dict]] = defaultdict(list)
     with open(args.csv) as f:
         reader = csv.DictReader(f)
@@ -48,7 +48,7 @@ def main() -> int:
                 "class": row["class"],
                 "scale": float(row["scale"]),
                 "growth": float(row["growth_ema"]),
-                "ttc": float(row["ttc"]),  # nan 가능
+                "ttc": float(row["ttc"]),  # may be nan
                 "level": row["level"],
                 "n_updates": int(row["n_updates"]),
             })
@@ -57,7 +57,7 @@ def main() -> int:
         print("[plot] no rows in csv", file=sys.stderr)
         return 1
 
-    # 트랙 선택: 명시값 > 가장 길게 보인 top-N
+    # track selection: explicit > top-N by length
     if args.tracks:
         selected = [t for t in args.tracks if t in rows_per_track]
     else:
@@ -96,11 +96,11 @@ def main() -> int:
         ax_scale.plot(ts, scales, marker=".", ms=3, color=c, label=label)
         ax_growth.plot(ts, growths, marker=".", ms=3, color=c, label=label)
 
-        # TTC: nan 또는 None 은 끊김으로 표시
+        # TTC: nan or None renders as a gap in the plot
         clean_ts, clean_ttcs = [], []
         for t, v in zip(ts, ttcs):
             if v is None or v != v:  # nan check
-                # 단절: 빈 자리는 그래프에서 끊김
+                # gap: break the line in the plot
                 if clean_ts:
                     ax_ttc.plot(clean_ts, clean_ttcs, marker=".", ms=3,
                                 color=c, label=label if not clean_ts else None)
@@ -125,7 +125,7 @@ def main() -> int:
     ax_ttc.set_ylabel("TTC [sec]")
     ax_ttc.set_xlabel("time [sec]")
     ax_ttc.set_title("Estimated TTC — gaps = TTC undefined (not approaching)")
-    # 위험 영역 음영
+    # shade danger zones
     ax_ttc.axhspan(0, 1.0, color="red", alpha=0.10, label="critical")
     ax_ttc.axhspan(1.0, 2.5, color="orange", alpha=0.10, label="warning")
     ax_ttc.axhspan(2.5, 5.0, color="yellow", alpha=0.10, label="caution")

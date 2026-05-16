@@ -1,15 +1,15 @@
 """
-환경 점검 스크립트 (Day 1 오전)
+Environment check script (Day 1 morning)
 
-Jetson Orin Nano 환경에서 다음을 점검한다:
-- Python / OS / JetPack 정보
-- PyTorch + CUDA 사용 가능 여부
-- ultralytics 동작 여부
-- onnxruntime CUDA EP 동작 여부
-- TensorRT 동작 여부 (trtexec, python binding)
-- OpenCV + USB 카메라 인식 여부
+Checks the following on a Jetson Orin Nano:
+- Python / OS / JetPack info
+- PyTorch + CUDA availability
+- ultralytics functionality
+- onnxruntime CUDA EP availability
+- TensorRT availability (trtexec, python binding)
+- OpenCV + USB camera recognition
 
-실패해도 멈추지 않고 모든 항목을 시도한 뒤 요약을 출력한다.
+Runs all checks without stopping on failure, then prints a summary.
 """
 
 from __future__ import annotations

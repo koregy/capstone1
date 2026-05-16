@@ -1,15 +1,15 @@
 """
-TTC (Time-To-Collision) 계산 — v2.
+TTC (Time-To-Collision) estimation — v2.
 
-v1 대비 다섯 가지 개선:
-  1) Scale outlier rejection — 한 프레임 spike 무시
-  2) 스무딩 강화 — EMA alpha 기본 0.15, scale 자체에도 EMA
-  3) 최소 관측 수 — n_updates < min_updates 이면 TTC None
-  4) 위험 레벨 히스테리시스 — critical 진입 후 N 프레임 유지
-  5) 지속성 요구 — 윈도우 안에 K 번 critical 일 때만 critical 로 분류
+Five improvements over v1:
+  1) Scale outlier rejection — ignores single-frame spikes
+  2) Stronger smoothing — EMA alpha defaults to 0.15, EMA applied to scale itself
+  3) Minimum observation count — TTC is None when n_updates < min_updates
+  4) Danger level hysteresis — holds critical for N frames after entry
+  5) Persistence requirement — classified as critical only when critical K times within window
 
-API 호환: estimator.update(tid, xyxy) → TTC or None.
-화면 분류는 estimator.classify(tid) 로 (이전 classify_ttc 함수 대신).
+API: estimator.update(tid, xyxy) → TTC or None.
+Classification via estimator.classify(tid) (replaces legacy classify_ttc).
 """
 
 from __future__ import annotations
@@ -21,20 +21,20 @@ from dataclasses import dataclass, field
 from typing import Deque, Dict, Optional
 
 
-# growth_ema 가 이 값 이하면 "수렴 중 아님" → TTC 미정의
-# v1 의 1e-3 은 너무 관대해 0 근처 진동에서 미친 TTC 가 나옴
+# if growth_ema is at or below this value, object is not approaching — TTC undefined
+# v1's 1e-3 was too permissive, producing wild TTC near-zero oscillations
 _MIN_GROWTH_PER_SEC = 2.0  # scale[px] / sec
 
-# Outlier rejection: 한 프레임 scale 변화가 이 비율 또는 이 픽셀값을 넘으면 spike
-# (ratio 만으로는 큰 객체의 작은 jitter가 새어나가서 픽셀 임계값도 함께 본다)
+# Outlier rejection: treat as spike if single-frame scale change exceeds ratio OR pixel threshold
+# (ratio alone lets small jitter on large objects through — pixel threshold catches those)
 _MAX_SCALE_JUMP_RATIO = 0.30
 _MAX_SCALE_JUMP_PX = 15.0
 
-# growth_ema 에 들어가기 전 inst_growth 를 이 범위로 clamp.
-# 60 FPS 영상처럼 dt 가 작을 때 작은 jitter 가 거대한 ds/dt 가 되는 것을 방지.
+# clamp inst_growth before feeding into growth_ema.
+# prevents small jitter from becoming enormous ds/dt at high frame rates (e.g. 60 FPS)
 _INST_GROWTH_CLAMP = 200.0  # |scale[px] / sec|
 
-# scale 자체에도 EMA 적용
+# EMA applied to scale itself
 _SCALE_EMA_ALPHA = 0.4
 
 _DEFAULT_MIN_UPDATES = 5
@@ -46,7 +46,7 @@ _DEFAULT_CRITICAL_WINDOW = 5
 @dataclass
 class TrackState:
     last_scale_raw: float
-    last_scale: float       # EMA 통과 후
+    last_scale: float       # post-EMA
     last_time: float
 
     growth_ema: float = 0.0
@@ -100,7 +100,7 @@ class TTCEstimator:
         if dt <= 0:
             return st.ttc
 
-        # ── 1) Outlier rejection: ratio OR 픽셀값 둘 중 하나라도 임계 초과면 spike
+        # ── 1) Outlier rejection: spike if ratio OR pixel jump exceeds threshold
         abs_jump = abs(s_raw - st.last_scale_raw)
         ratio = abs_jump / max(st.last_scale_raw, 1.0)
         if st.n_updates >= 2 and (ratio > _MAX_SCALE_JUMP_RATIO or
@@ -109,16 +109,16 @@ class TTCEstimator:
             st.last_time = t
             if st.level_history:
                 st.level_history.append(st.level_history[-1])
-            return st.ttc  # 직전 TTC 그대로 유지
+            return st.ttc  # retain previous TTC
 
-        # ── 2) scale 자체 EMA
+        # ── 2) EMA on scale
         if st.n_updates == 0:
             s_smooth = s_raw
         else:
             s_smooth = _SCALE_EMA_ALPHA * s_raw + (1 - _SCALE_EMA_ALPHA) * st.last_scale
 
-        # ── 3) ds/dt 와 그것의 EMA
-        # 작은 dt(고프레임률)에서 작은 jitter가 거대한 ds/dt가 되는 것을 막기 위해 clamp.
+        # ── 3) ds/dt and its EMA
+        # clamp to prevent small jitter from producing huge ds/dt at high frame rates
         inst_growth = (s_smooth - st.last_scale) / dt
         inst_growth = max(-_INST_GROWTH_CLAMP, min(_INST_GROWTH_CLAMP, inst_growth))
         if st.n_updates == 0:
@@ -131,12 +131,12 @@ class TTCEstimator:
         st.last_time = t
         st.n_updates += 1
 
-        # ── 4) 최소 관측 수 미달
+        # ── 4) insufficient observations
         if st.n_updates < self.min_updates:
             st.ttc = None
             return None
 
-        # ── 5) TTC 계산
+        # ── 5) compute TTC
         if st.growth_ema <= _MIN_GROWTH_PER_SEC:
             st.ttc = None
         else:
@@ -145,21 +145,21 @@ class TTCEstimator:
         return st.ttc
 
     def classify(self, track_id: int) -> str:
-        """안정 분류: 히스테리시스 + 지속성 적용."""
+        """Stable classification: applies hysteresis and persistence."""
         st = self.states.get(track_id)
         if st is None:
             return "none"
         instant = _instant_level(st.ttc)
         st.level_history.append(instant)
 
-        # critical hold 중
+        # within critical hold window
         if st.critical_hold > 0:
             st.critical_hold -= 1
             if instant in ("safe", "caution", "none"):
                 return "warning"
             return instant
 
-        # critical 지속성 판정
+        # critical persistence check
         if instant == "critical":
             n_crit = sum(1 for L in st.level_history if L == "critical")
             if n_crit >= self.critical_persist:
@@ -211,5 +211,5 @@ def _instant_level(ttc: Optional[float]) -> str:
 
 
 def classify_ttc(ttc: Optional[float]) -> str:
-    """[호환용] 순간 TTC 분류. 런타임 분류는 TTCEstimator.classify()."""
+    """[compatibility] Instantaneous TTC classification. For runtime use TTCEstimator.classify()."""
     return _instant_level(ttc)

@@ -1,7 +1,7 @@
 """
-프레임 위에 bbox + 트랙 ID + 궤적 + TTC + FPS 를 그린다.
+Draws bbox + track ID + trail + TTC + FPS onto a frame.
 
-cv2 의존성만 사용. 색은 TTC 위험도에 따라 자동.
+Uses only cv2. Colors are determined automatically by TTC danger level.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import cv2
 import numpy as np
 
 
-# BGR 색상 (cv2 기본 순서)
+# BGR colors (cv2 default channel order)
 _COLOR_BY_LEVEL = {
     "critical": (0, 0, 255),     # red
     "warning":  (0, 128, 255),   # orange
@@ -24,7 +24,7 @@ _COLOR_BY_LEVEL = {
 
 
 class TrackTrails:
-    """트랙별 중심점 궤적을 보관. 일정 길이 유지."""
+    """Stores centroid trail per track, bounded to a fixed length."""
 
     def __init__(self, max_len: int = 30) -> None:
         self.max_len = max_len
@@ -53,13 +53,13 @@ def draw_box_with_ttc(
     ttc: Optional[float],
     level: str,
 ) -> None:
-    """단일 객체 박스 + 라벨 + TTC 텍스트를 그린다."""
+    """Draws a single object box, label, and TTC text."""
     color = _COLOR_BY_LEVEL.get(level, _COLOR_BY_LEVEL["none"])
     x1, y1, x2, y2 = (int(v) for v in xyxy)
     thickness = 3 if level in ("critical", "warning") else 2
     cv2.rectangle(frame, (x1, y1), (x2, y2), color, thickness)
 
-    # 라벨 텍스트 구성
+    # build label text
     parts = []
     if track_id is not None:
         parts.append(f"#{track_id}")
@@ -68,7 +68,7 @@ def draw_box_with_ttc(
         parts.append(f"TTC={ttc:.2f}s")
     text = " ".join(parts)
 
-    # 배경 박스 + 글자
+    # background box + text
     (tw, th), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
     y_text = max(y1 - 6, th + 4)
     cv2.rectangle(
@@ -102,7 +102,7 @@ def draw_hud(
     backend: str,
     extra: Optional[str] = None,
 ) -> None:
-    """좌상단 HUD: FPS, 백엔드, 부가정보."""
+    """Top-left HUD: FPS, backend name, and optional extra info."""
     line1 = f"{backend} | {fps:.1f} FPS"
     cv2.putText(
         frame, line1, (10, 24),
@@ -116,7 +116,7 @@ def draw_hud(
 
 
 def draw_critical_banner(frame: np.ndarray, text: str = "COLLISION IMMINENT") -> None:
-    """상단에 깜빡일 수 있는 빨간 경고 배너."""
+    """Red warning banner at the top of the frame (can be made to blink)."""
     h, w = frame.shape[:2]
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (w, 40), (0, 0, 255), -1)
