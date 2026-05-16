@@ -1,0 +1,65 @@
+# ── Python ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Large binaries / data (never commit) ────────────────
+# Videos (downloaded sources + recorded demos)
+data/
+*.mp4
+*.mkv
+*.avi
+*.mov
+
+# Model weights (PyTorch / ONNX / TensorRT)
+models/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+*.plan
+
+# Measurement results / generated figures
+results/
+poster/demo_video/
+poster/figures/*.png
+poster/figures/*.jpg
+poster/figures/*.pdf
+
+# Allow a handful of curated examples to be committed under example/
+!poster/figures/example/
+
+# ── Experiment leftovers ────────────────────────────────
+*.log
+*.tmp
+*_v[0-9].csv
+*_v[0-9].png
+ttc_debug*.csv
+ttc_debug*.png
+
+# JetPack / TensorRT logs and caches
+trtexec.log
+*.cache
+
+# OS
+.DS_Store
+Thumbs.db
