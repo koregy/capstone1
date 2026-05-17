@@ -61,5 +61,5 @@ backends:
 
   - name: trt_int8
     precision: int8
-    engine: models/trt/yolov8n_int8_entropy_500.engine
+    engine: models/trt/yolov8n_int8.engine
     enabled: true                          

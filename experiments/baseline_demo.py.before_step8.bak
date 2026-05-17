@@ -46,7 +46,7 @@ def build_backend(backend_cfg: dict) -> BaseBackend:
     if name == "onnxrt_fp32":
         from infra.backends.onnxrt_backend import ONNXRuntimeBackend
         return ONNXRuntimeBackend()
-    if name in ("trt_fp32", "trt_fp16") or name.startswith("trt_int8"):
+    if name in ("trt_fp32", "trt_fp16", "trt_int8"):
         from infra.backends.tensorrt_backend import TensorRTBackend
         precision = backend_cfg.get("precision", name.split("_")[1])
         return TensorRTBackend(name=name, precision=precision)

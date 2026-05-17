@@ -1,0 +1,45 @@
+# Calibration strategy comparison config (Day 3 §4.2 / §12.7.5).
+#
+# Same structure as configs/benchmark.yaml but with only the 4 INT8 variants.
+# Results go to results/calibration_compare/ to keep them separate from the
+# 5-way baseline measurements.
+#
+# Note: trt_int8_entropy_500 is also in benchmark.yaml as `trt_int8` (the
+# representative INT8 entry in the 5-way table). Measuring it here too gives
+# a within-experiment baseline for the variants, and lets us check that
+# repeat measurements are stable (sanity that thermal/warmup haven't drifted).
+
+input:
+  imgsz: 640
+  batch_size: 1
+  channels: 3
+
+run:
+  n_warmup: 20
+  n_iter: 200
+  device: cuda
+  seed: 42
+
+output:
+  results_dir: results/calibration_compare
+
+backends:
+  - name: trt_int8_entropy_100
+    precision: int8
+    engine: models/trt/yolov8n_int8_entropy_100.engine
+    enabled: true
+
+  - name: trt_int8_entropy_500
+    precision: int8
+    engine: models/trt/yolov8n_int8_entropy_500.engine
+    enabled: true
+
+  - name: trt_int8_minmax_500
+    precision: int8
+    engine: models/trt/yolov8n_int8_minmax_500.engine
+    enabled: true
+
+  - name: trt_int8_percentile_500
+    precision: int8
+    engine: models/trt/yolov8n_int8_percentile_500.engine
+    enabled: true

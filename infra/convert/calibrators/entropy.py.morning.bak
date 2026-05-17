@@ -1,0 +1,189 @@
+"""TensorRT INT8 entropy calibrator.
+
+Implements `IInt8EntropyCalibrator2` (KL-divergence based), which is TRT 10's
+recommended default. Used by `infra/convert/onnx_to_trt.py` when building INT8
+engines.
+
+Day 3 capstone1 §4.2 — Entropy is one of three calibration strategies we
+compare; MinMax and Percentile are separate classes in this package and share
+the same `CalibrationDataset` and CUDA buffer handling.
+
+Cache files
+-----------
+TRT can serialize per-tensor scale factors to a small text file ("calibration
+cache"). Subsequent builds with the same model + cache file skip the calibration
+forward passes entirely. We use one cache file per (strategy, num_images) combo,
+e.g. `cache/entropy_500.cache`, so that runs are reproducible and don't bleed
+into each other.
+
+Why pycuda
+----------
+TRT's `get_batch()` must return device-memory pointers. pycuda is the option
+that JetPack 6.1 ships with by default and that NVIDIA's own TRT samples use.
+We deliberately do NOT use `torch.cuda` here: PyTorch's CUDA initializer
+allocates a multi-hundred-MB pool that would compete with TRT's own builder
+workspace during INT8 calibration, occasionally causing OOM on the 8 GB Orin
+Nano. pycuda's allocator is thin and explicit.
+"""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+from typing import List, Optional, Union
+
+import numpy as np
+
+try:
+    import tensorrt as trt
+except ImportError as e:
+    raise ImportError(
+        "TensorRT is required for INT8 calibration. "
+        "On Jetson (JetPack 6.1), TRT 10.3 is preinstalled at /usr/lib/python3*/dist-packages."
+    ) from e
+
+try:
+    import pycuda.driver as cuda
+    import pycuda.autoinit  # noqa: F401  -- side effect: initializes CUDA context
+except ImportError as e:
+    raise ImportError(
+        "pycuda is required for INT8 calibration. "
+        "On Jetson: sudo apt install python3-pycuda  (or pip install pycuda)."
+    ) from e
+
+from infra.convert.calibration_dataset import CalibrationDataset
+
+
+log = logging.getLogger(__name__)
+PathLike = Union[str, Path]
+
+
+class EntropyCalibrator(trt.IInt8EntropyCalibrator2):
+    """KL-divergence-based INT8 calibrator.
+
+    Parameters
+    ----------
+    dataset : CalibrationDataset
+        Source of calibration batches. Its `batch_size` and `img_size` must
+        match the network's input dimensions (B=1, H=W=640 for our static
+        Day 2 ONNX).
+    cache_file : Path or str
+        Where to read/write the TRT calibration cache. Parent directory is
+        created if missing. Set to a path that does not exist on first run.
+    input_name : str
+        Name of the network input tensor. Must match the ONNX graph input
+        ("images" for our YOLOv8n export, see Day 2). TRT passes this in
+        `get_batch(names)` and we sanity-check it.
+
+    Lifecycle
+    ---------
+    TRT calls (in order):
+        get_batch_size()                # once
+        read_calibration_cache()        # once -- if returns bytes, calibration is skipped
+        get_batch(names)                # repeatedly, until None is returned
+        write_calibration_cache(cache)  # once, after all batches consumed
+    """
+
+    def __init__(
+        self,
+        dataset: CalibrationDataset,
+        cache_file: PathLike,
+        input_name: str = "images",
+    ):
+        # IMPORTANT: trt.IInt8EntropyCalibrator2 is a C++ binding and its
+        # __init__ MUST be called explicitly. Omitting this is a well-known
+        # footgun -- callbacks fire but state is corrupted.
+        super().__init__()
+
+        self.dataset = dataset
+        self.cache_file = Path(cache_file)
+        self.cache_file.parent.mkdir(parents=True, exist_ok=True)
+        self.input_name = input_name
+
+        # Iterator state
+        self._iter = iter(self.dataset)
+        self._batch_index = 0
+        self._total_batches = len(self.dataset)
+
+        # Allocate one reusable device buffer of the right size.
+        # dataset.shape is (B, C, H, W); element size is float32 = 4 bytes.
+        b, c, h, w = self.dataset.shape
+        self._nbytes = b * c * h * w * 4
+        self._device_input = cuda.mem_alloc(self._nbytes)
+
+        log.info(
+            "EntropyCalibrator: %d batches of shape %s, cache=%s",
+            self._total_batches, self.dataset.shape, self.cache_file,
+        )
+
+    # -- Required interface --
+
+    def get_batch_size(self) -> int:
+        return self.dataset.batch_size
+
+    def get_batch(self, names: List[str]) -> Optional[List[int]]:
+        """Called by TRT for each calibration step. Return None to terminate.
+
+        TRT passes `names` = list of network input names it expects buffers for.
+        For our single-input YOLOv8n that's `["images"]`. We validate this so a
+        future multi-input model would fail loudly here instead of silently.
+        """
+        if self.input_name not in names:
+            raise RuntimeError(
+                f"Calibrator expected input name '{self.input_name}' but TRT asked "
+                f"for {names}. Check the ONNX graph input name."
+            )
+
+        try:
+            host_batch = next(self._iter)
+        except StopIteration:
+            log.info("EntropyCalibrator: exhausted after %d batches", self._batch_index)
+            return None
+
+        # Sanity: shape must match the buffer we pre-allocated
+        if host_batch.nbytes != self._nbytes:
+            raise RuntimeError(
+                f"Batch {self._batch_index} has nbytes={host_batch.nbytes}, "
+                f"expected {self._nbytes}. Likely batch_size or img_size mismatch."
+            )
+
+        # Async copy is fine because TRT will synchronize on the stream when it
+        # runs the network on this buffer. Use sync copy for predictability.
+        cuda.memcpy_htod(self._device_input, host_batch)
+
+        self._batch_index += 1
+        if self._batch_index % 50 == 0 or self._batch_index == self._total_batches:
+            log.info(
+                "calibrator: %d / %d batches",
+                self._batch_index, self._total_batches,
+            )
+
+        return [int(self._device_input)]
+
+    def read_calibration_cache(self) -> Optional[bytes]:
+        if self.cache_file.is_file():
+            data = self.cache_file.read_bytes()
+            log.info(
+                "EntropyCalibrator: reusing cache %s (%d bytes) -- calibration forward passes will be SKIPPED",
+                self.cache_file, len(data),
+            )
+            return data
+        return None
+
+    def write_calibration_cache(self, cache: bytes) -> None:
+        self.cache_file.write_bytes(cache)
+        log.info(
+            "EntropyCalibrator: wrote cache %s (%d bytes)",
+            self.cache_file, len(cache),
+        )
+
+    # -- Optional cleanup --
+
+    def __del__(self):
+        # pycuda's DeviceAllocation auto-frees on GC, but be explicit when we can.
+        try:
+            if hasattr(self, "_device_input") and self._device_input is not None:
+                self._device_input.free()
+                self._device_input = None
+        except Exception:
+            pass
