@@ -1,6 +1,6 @@
 {
   "backend": {
-    "name": "trt_int8",
+    "name": "trt_int8_percentile_500_host",
     "precision": "int8"
   },
   "run": {
@@ -14,31 +14,31 @@
     "n_iter": 200,
     "seed": 42,
     "device": "cuda",
-    "include_io": false
+    "include_io": true
   },
   "stats": {
     "n": 200,
     "n_warmup_excluded": 20,
-    "mean_ms": 3.318122880100418,
-    "std_ms": 0.011246852320666715,
-    "min_ms": 3.298111998446984,
-    "max_ms": 3.4311359995626844,
-    "p50_ms": 3.317408001748845,
-    "p90_ms": 3.3274880006501917,
-    "p95_ms": 3.331046399580373,
-    "p99_ms": 3.340544957536622,
-    "fps": 301.3752160889643
+    "mean_ms": 4.705466879950109,
+    "std_ms": 0.025547857707109076,
+    "min_ms": 4.673120001825737,
+    "max_ms": 4.794815999048296,
+    "p50_ms": 4.6975039986136835,
+    "p90_ms": 4.751871999542345,
+    "p95_ms": 4.765107201637875,
+    "p99_ms": 4.785770560229139,
+    "fps": 212.5187628587884
   },
   "env": {
-    "timestamp": "2026-05-19T17:40:49+09:00",
+    "timestamp": "2026-05-19T17:49:18+09:00",
     "torch": "2.5.0a0+872d972e41.nv24.08",
     "cuda": "12.6",
     "gpu": "Orin"
   },
   "extra": {
-    "name": "trt_int8",
+    "name": "trt_int8_percentile_500",
     "precision": "int8",
-    "engine": "models/trt/yolov8n_int8_entropy_500.engine",
+    "engine": "models/trt/yolov8n_int8_percentile_500.engine",
     "input_names": [
       "images"
     ],

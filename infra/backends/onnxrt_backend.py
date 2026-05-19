@@ -40,6 +40,9 @@ class ONNXRuntimeBackend(BaseBackend):
         # Keyed by (data_ptr, shape) so re-used tensors hit the cache.
         self._np_cache_key: tuple | None = None
         self._np_cache_val: np.ndarray | None = None
+        # IOBinding state for Boundary A; populated in load().
+        self._io_binding = None
+        self._output_cuda_buffers: dict = {}
 
     def load(self, model_path: str | Path, device: str = "cuda") -> None:
         """Build the ORT session with CUDA EP first, CPU as fallback."""
@@ -87,6 +90,29 @@ class ONNXRuntimeBackend(BaseBackend):
                 f"Got providers: {self._providers_used}"
             )
 
+        # Pre-allocate IOBinding state for Boundary A (CUDA tensor I/O,
+        # no H2D/D2H). The benchmark runner re-uses the same dummy across
+        # iterations, so allocating once eliminates per-iter overhead.
+        self._io_binding = self.session.io_binding()
+        self._output_cuda_buffers: dict[str, torch.Tensor] = {}
+        for out in self.session.get_outputs():
+            shape = tuple(out.shape)
+            if any(not isinstance(d, int) or d <= 0 for d in shape):
+                # Dynamic shape -- we'll bind output on demand in infer().
+                # Day 2 ONNX is static (1, 84, 8400) so this branch is unused
+                # in the current pipeline but kept for safety.
+                continue
+            buf = torch.zeros(shape, dtype=torch.float32, device="cuda")
+            self._output_cuda_buffers[out.name] = buf
+            self._io_binding.bind_output(
+                name=out.name,
+                device_type="cuda",
+                device_id=0,
+                element_type=np.float32,
+                shape=list(shape),
+                buffer_ptr=buf.data_ptr(),
+            )
+
     def _to_numpy(self, x: Any) -> np.ndarray:
         """Convert input to numpy float32, caching the result for re-used tensors.
 
@@ -116,8 +142,33 @@ class ONNXRuntimeBackend(BaseBackend):
         torch.cuda.synchronize()
 
     def infer(self, x: Any) -> Any:
-        """Run one inference. Returns list[np.ndarray] (one per output)."""
+        """Run one inference.
+
+        Input form determines the measurement boundary:
+          * torch.Tensor (CUDA): IOBinding path -- ORT reads/writes directly
+            from/to CUDA memory. No H2D/D2H. (Boundary A = GPU compute only.)
+          * np.ndarray (or non-CUDA torch.Tensor via _to_numpy): standard
+            session.run() path -- ORT internally H2D's the input and D2H's
+            the output. (Boundary B = host latency.)
+        """
         assert self.session is not None, "Call load() before infer()."
+
+        if isinstance(x, torch.Tensor) and x.is_cuda:
+            # Boundary A: zero-copy via IOBinding.
+            # Output buffers were pre-allocated and bound in load().
+            self._io_binding.bind_input(
+                name=self.input_name,
+                device_type="cuda",
+                device_id=0,
+                element_type=np.float32,
+                shape=list(x.shape),
+                buffer_ptr=x.data_ptr(),
+            )
+            self.session.run_with_iobinding(self._io_binding)
+            # Return CUDA tensors (no D2H). Caller can .cpu().numpy() if needed.
+            return [self._output_cuda_buffers[n] for n in self.output_names]
+
+        # Boundary B: existing numpy path.
         arr = self._to_numpy(x)
         return self.session.run(self.output_names, {self.input_name: arr})
 
@@ -126,6 +177,8 @@ class ONNXRuntimeBackend(BaseBackend):
         self.session = None
         self._np_cache_key = None
         self._np_cache_val = None
+        self._io_binding = None
+        self._output_cuda_buffers = {}
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
 

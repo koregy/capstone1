@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import numpy as np
 
 from infra.backends.base import BaseBackend
 
@@ -64,10 +65,32 @@ class PyTorchBackend(BaseBackend):
         torch.cuda.synchronize()
 
     def infer(self, x: Any) -> Any:
-        """Single forward pass. Input is a CUDA tensor (B, C, H, W)."""
+        """Single forward pass.
+
+        Input form determines the measurement boundary:
+          * torch.Tensor (CUDA): GPU-compute-only path (Boundary A).
+          * np.ndarray: H2D copy of input + forward + D2H copy of output
+            included in the timed region (Boundary B / host latency).
+
+        NMS / class filtering / postprocessing is always excluded; the
+        measurement is the raw forward pass plus (optionally) the data
+        transfers around it.
+        """
         assert self.model is not None, "Call load() before infer()."
+
+        is_numpy = isinstance(x, np.ndarray)
+        if is_numpy:
+            x = torch.from_numpy(x).cuda(non_blocking=False)
+
         with torch.inference_mode():
             out = self.model(x)
+
+        if is_numpy:
+            # Close the host-latency boundary: bring outputs back to CPU as numpy.
+            if isinstance(out, torch.Tensor):
+                out = out.cpu().numpy()
+            elif isinstance(out, (list, tuple)):
+                out = [o.cpu().numpy() if isinstance(o, torch.Tensor) else o for o in out]
         return out
 
     def teardown(self) -> None:

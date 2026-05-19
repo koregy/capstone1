@@ -79,3 +79,10 @@ yolov8n.pt
 !results/baseline/*.log
 !results/baseline/*.json
 !results/baseline/*.csv
+
+# Day 3: calibration variant comparison results
+!results/calibration_compare/
+!results/calibration_compare/*.json
+!results/calibration_compare/*.csv
+# Backup files
+*.bak

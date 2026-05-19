@@ -57,6 +57,15 @@ def main() -> int:
         default=None,
         help="Override run.n_warmup from the YAML.",
     )
+    parser.add_argument(
+        "--boundaries",
+        choices=["gpu_only", "host", "both"],
+        default="gpu_only",
+        help="Which measurement boundary(ies) to run. "
+             "gpu_only (default) measures GPU compute only (Boundary A). "
+             "host adds H2D/D2H (Boundary B). "
+             "both runs each variant twice and produces separate records.",
+    )
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -91,9 +100,22 @@ def main() -> int:
     print(f"Results dir:   {results_dir}")
     print(f"Variants:      {[b['name'] for b in backends_to_run]}")
 
+    if args.boundaries == "gpu_only":
+        boundaries_to_run = [False]
+    elif args.boundaries == "host":
+        boundaries_to_run = [True]
+    else:  # "both"
+        boundaries_to_run = [False, True]
+
     all_stats: dict[str, dict] = {}
-    for b in backends_to_run:
-        all_stats[b["name"]] = measure_one(b, input_shape, run_cfg, results_dir)
+    for include_io in boundaries_to_run:
+        for b in backends_to_run:
+            suffix = "_host" if include_io else ""
+            key = b["name"] + suffix
+            all_stats[key] = measure_one(
+                b, input_shape, run_cfg, results_dir,
+                include_io=include_io,
+            )
 
     # Cross-variant summary
     if len(all_stats) > 1:
@@ -105,20 +127,30 @@ def main() -> int:
             print(f"  {name:30s}  mean={s['mean_ms']:7.3f} ms  "
                   f"p95={s['p95_ms']:7.3f}  fps={s['fps']:6.2f}")
 
-        # Relative comparison vs entropy_500 (our "canonical" INT8 baseline)
-        baseline_name = "trt_int8_entropy_500"
-        if baseline_name in all_stats:
+        # Relative comparison vs entropy_500 (canonical INT8 baseline),
+        # done separately for each boundary that was measured.
+        for include_io in boundaries_to_run:
+            suffix = "_host" if include_io else ""
+            baseline_name = "trt_int8_entropy_500" + suffix
+            if baseline_name not in all_stats:
+                continue
+            boundary_label = (
+                "host latency (Boundary B)" if include_io
+                else "GPU only (Boundary A)"
+            )
             print()
-            print(f"  vs {baseline_name} (= 5-way table's trt_int8):")
+            print(f"  {boundary_label} -- vs {baseline_name}:")
             base = all_stats[baseline_name]["mean_ms"]
+            # Only compare variants from the SAME boundary
             for name, s in all_stats.items():
                 if name == baseline_name:
                     continue
+                if name.endswith("_host") != include_io:
+                    continue  # different boundary, skip
                 delta = s["mean_ms"] - base
                 pct = 100.0 * delta / base
                 sign = "+" if delta >= 0 else ""
-                print(f"    {name:30s}  {sign}{delta:6.3f} ms ({sign}{pct:5.2f}%)")
-
+                print(f"    {name:34s}  {sign}{delta:6.3f} ms ({sign}{pct:5.2f}%)")
     return 0
 
 

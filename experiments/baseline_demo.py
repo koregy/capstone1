@@ -51,6 +51,7 @@ def build_backend(backend_cfg: dict) -> BaseBackend:
         precision = backend_cfg.get("precision", name.split("_")[1])
         return TensorRTBackend(name=name, precision=precision)
     raise ValueError(f"Unknown or not-yet-implemented backend: {name}")
+
 def load_weights_path(backend_cfg: dict) -> str:
     """Each backend stores its model under a different key (weights/engine).
 
@@ -64,17 +65,19 @@ def load_weights_path(backend_cfg: dict) -> str:
         f"Backend {backend_cfg.get('name')} has neither 'weights' nor 'engine'."
     )
 
-
 def measure_one(
     backend_cfg: dict,
     input_shape: tuple[int, ...],
     run_cfg: dict,
     results_dir: str,
+    include_io: bool = False,
 ) -> dict:
     """Full measurement cycle for one backend. Returns the stats dict."""
     name = backend_cfg["name"]
+    record_name = name + ("_host" if include_io else "")
+    boundary_label = "host latency (Boundary B)" if include_io else "GPU only (Boundary A)"
     print(f"\n{'=' * 60}")
-    print(f"  Measuring backend: {name}")
+    print(f"  Measuring backend: {name}   [{boundary_label}]")
     print(f"{'=' * 60}")
 
     backend = build_backend(backend_cfg)
@@ -91,6 +94,7 @@ def measure_one(
         n_iter=run_cfg["n_iter"],
         device=run_cfg["device"],
         seed=run_cfg["seed"],
+        include_io=include_io,
     )
 
     print(f"[3/4] compute stats")
@@ -101,7 +105,7 @@ def measure_one(
 
     print(f"[4/4] save record")
     record = build_record(
-        backend_name=name,
+        backend_name=record_name,
         precision=backend_cfg.get("precision", backend.precision),
         stats=stats,
         run_config={
@@ -110,6 +114,7 @@ def measure_one(
             "n_iter": run_cfg["n_iter"],
             "seed": run_cfg["seed"],
             "device": run_cfg["device"],
+            "include_io": include_io,
         },
         extra=backend.device_info,
     )
@@ -117,7 +122,7 @@ def measure_one(
     print(f"      -> {json_path}")
     print(f"      -> {csv_path}")
 
-    print("\n" + format_stats_table(stats, title=name))
+    print("\n" + format_stats_table(stats, title=record_name))
 
     # Release GPU memory before moving to the next backend.
     backend.teardown()
@@ -151,6 +156,15 @@ def main() -> int:
         type=int,
         default=None,
         help="Override run.n_warmup from the YAML.",
+    )
+    parser.add_argument(
+        "--boundaries",
+        choices=["gpu_only", "host", "both"],
+        default="gpu_only",
+        help="Which measurement boundary(ies) to run. "
+             "gpu_only (default) measures GPU compute only (Boundary A). "
+             "host adds H2D/D2H (Boundary B). "
+             "both runs each backend twice and produces separate records.",
     )
     args = parser.parse_args()
 
@@ -189,9 +203,23 @@ def main() -> int:
     print(f"Results dir:   {results_dir}")
     print(f"Backends:      {[b['name'] for b in backends_to_run]}")
 
+    # Decide which boundaries to measure
+    if args.boundaries == "gpu_only":
+        boundaries_to_run = [False]
+    elif args.boundaries == "host":
+        boundaries_to_run = [True]
+    else:  # "both"
+        boundaries_to_run = [False, True]
+
     all_stats: dict[str, dict] = {}
-    for b in backends_to_run:
-        all_stats[b["name"]] = measure_one(b, input_shape, run_cfg, results_dir)
+    for include_io in boundaries_to_run:
+        for b in backends_to_run:
+            suffix = "_host" if include_io else ""
+            key = b["name"] + suffix
+            all_stats[key] = measure_one(
+                b, input_shape, run_cfg, results_dir,
+                include_io=include_io,
+            )
 
     # Final cross-backend summary.
     if len(all_stats) > 1:
