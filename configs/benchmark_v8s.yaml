@@ -1,0 +1,62 @@
+# Benchmark configuration for YOLOv8s reusability validation (Day 7).
+#
+# Twin of configs/benchmark.yaml with paths swapped yolov8n → yolov8s.
+# Output dir separated to results/yolov8s/baseline/ to preserve yolov8n results.
+#
+# Run with:
+#   python3 experiments/baseline_demo.py --config configs/benchmark_v8s.yaml
+
+# ---------------------------------------------------------------------------
+# Input tensor shape. Identical to yolov8n (both are 640x640).
+# ---------------------------------------------------------------------------
+input:
+  imgsz: 640
+  batch_size: 1
+  channels: 3
+
+# ---------------------------------------------------------------------------
+# Measurement run parameters. Identical to yolov8n for fair cross-model comparison.
+# ---------------------------------------------------------------------------
+run:
+  n_warmup: 20
+  n_iter: 200
+  device: cuda
+  seed: 42
+
+# ---------------------------------------------------------------------------
+# Output location. Separated by model under results/yolov8s/.
+# ---------------------------------------------------------------------------
+output:
+  results_dir: results/yolov8s/baseline
+
+# ---------------------------------------------------------------------------
+# Backend list. Same 5-way as yolov8n.
+# ---------------------------------------------------------------------------
+backends:
+  - name: pytorch_fp32
+    precision: fp32
+    weights: models/pt/yolov8s.pt
+    enabled: true
+
+  - name: onnxrt_fp32
+    precision: fp32
+    weights: models/onnx/yolov8s.onnx
+    providers:
+      - CUDAExecutionProvider
+      - CPUExecutionProvider
+    enabled: true
+
+  - name: trt_fp32
+    precision: fp32
+    engine: models/trt/yolov8s_fp32.engine
+    enabled: true
+
+  - name: trt_fp16
+    precision: fp16
+    engine: models/trt/yolov8s_fp16.engine
+    enabled: true
+
+  - name: trt_int8
+    precision: int8
+    engine: models/trt/yolov8s_int8_entropy_500.engine
+    enabled: true

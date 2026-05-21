@@ -1,0 +1,70 @@
+# Accuracy (mAP) measurement for YOLOv8s reusability validation.
+#
+# Twin of configs/accuracy.yaml but reduced from 9-way to 5-way:
+# only entropy_500 for INT8 (calibration variant comparison out of Day 7 scope).
+# Same 1000 COCO val images as yolov8n eval -- direct mAP comparison.
+#
+# Run with:
+#   python3 experiments/accuracy_demo.py --config configs/accuracy_v8s.yaml
+
+# ---------------------------------------------------------------------------
+# Input shape (same as benchmark_v8s.yaml).
+# ---------------------------------------------------------------------------
+input:
+  imgsz: 640
+  batch_size: 1
+  channels: 3
+
+# ---------------------------------------------------------------------------
+# Evaluation parameters. IDENTICAL to configs/accuracy.yaml so mAP numbers
+# are directly comparable to yolov8n's.
+# ---------------------------------------------------------------------------
+eval:
+  ann_file: data/coco_val/annotations/instances_val2017.json
+  images_dir: data/coco_val/images
+  start: 500
+  count: 1000
+  conf_thres: 0.001
+  iou_thres: 0.7
+  max_det: 300
+  nc: 80
+  device: cuda
+  progress_interval: 100
+
+# ---------------------------------------------------------------------------
+# Output location.
+# ---------------------------------------------------------------------------
+output:
+  results_dir: results/yolov8s/accuracy
+
+# ---------------------------------------------------------------------------
+# Backends — 5-way (no INT8 calibration variants for Day 7).
+# ---------------------------------------------------------------------------
+backends:
+  - name: pytorch_fp32
+    precision: fp32
+    weights: models/pt/yolov8s.pt
+    enabled: true
+
+  - name: onnxrt_fp32
+    precision: fp32
+    weights: models/onnx/yolov8s.onnx
+    providers:
+      - CUDAExecutionProvider
+      - CPUExecutionProvider
+    enabled: true
+
+  - name: trt_fp32
+    precision: fp32
+    engine: models/trt/yolov8s_fp32.engine
+    enabled: true
+
+  - name: trt_fp16
+    precision: fp16
+    engine: models/trt/yolov8s_fp16.engine
+    enabled: true
+
+  - name: trt_int8
+    precision: int8
+    engine: models/trt/yolov8s_int8_entropy_500.engine
+    enabled: true
